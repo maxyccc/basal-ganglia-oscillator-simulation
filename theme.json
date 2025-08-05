@@ -1,0 +1,54 @@
+
+        {
+            "defaults":
+            {
+                "colours":
+                {
+                    "normal_text": "#F0F0F0",
+                    "dark_bg": "#141423"
+                }
+            },
+            "UIPanel":
+            {
+                "colours":
+                {
+                    "dark_bg": "#28283C"
+                },
+                "misc":
+                {
+                    "border_colour": "#646478",
+                    "border_width": "1"
+                }
+            },
+            "#title_label":
+            {
+                "font": {
+                    "name": "Arial",
+                    "size": "20",
+                    "bold": "1"
+                }
+            },
+            "#section_label":
+            {
+                "font": {
+                    "name": "Arial",
+                    "size": "16",
+                    "bold": "1"
+                },
+                "colours": {
+                    "normal_text": "#FFD700"
+                }
+            },
+            "#subsection_label":
+            {
+                "font": {
+                    "name": "Arial",
+                    "size": "14",
+                    "bold": "1"
+                },
+                "colours": {
+                    "normal_text": "#87CEEB"
+                }
+            }
+        }
+        
