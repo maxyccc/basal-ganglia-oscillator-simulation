@@ -1,6 +1,6 @@
 # Basal Ganglia Oscillator
 
-A real-time neural network simulation featuring a bipartite spiking neural network with spike-timing dependent plasticity (STDP), designed to model oscillatory dynamics in basal ganglia circuits.
+A real-time simulator featuring a bipartite LIF neurons with spike-timing dependent plasticity (STDP), designed to model oscillatory dynamics in basal ganglia circuits.
 
 ![Simulation Screenshot](snapshot.png)
 
