@@ -96,13 +96,18 @@ class NetworkVisualizer:
         self.raster_window = 2000  # ms
         self.spike_history_A = deque()
         self.spike_history_B = deque()
-        
+
         self.rate_window = 500  # ms
-        self.rate_history_len = 200  # Number of points to store
+        self.rate_history_len = 400  # Number of points to store (20 seconds at 50ms intervals)
         self.rate_history_A = deque(maxlen=self.rate_history_len)
         self.rate_history_B = deque(maxlen=self.rate_history_len)
         self.rate_update_interval = 50  # ms
         self.last_rate_update = 0
+
+        # --- History and Scrolling Configuration ---
+        self.max_history_duration = 20000  # ms (20 seconds)
+        self.raster_scroll_offset = 0.0
+        self.rate_scroll_offset = 0.0
 
         self._setup_layout()
         self._create_ui_elements()
@@ -117,38 +122,63 @@ class NetworkVisualizer:
 
     def _setup_layout(self):
         """Define the geometry of all UI panels."""
-        # Optimized layout with combined time/FPS labels to save vertical space
-        self.controls_panel = pygame.Rect(10, 10, 500, 600)  # Increased width from 380 to 500
-        self.rate_panel = pygame.Rect(10, 620, 380, self.height - 630)  # Expanded panel for better visualization
-        self.activity_panel = pygame.Rect(400, 10, 570, self.height - 20)  # Adjusted position
-        self.weights_panel = pygame.Rect(980, 10, 610, self.height - 20)
+        # Three-column layout: Left (Controls), Middle (Neural Activity), Right (Weights + Rates)
 
-        # Sub-rects for raster plots
+        # Left Column: Controls & Parameters (expanded height to include STDP controls)
+        self.controls_panel = pygame.Rect(10, 10, 380, self.height - 20)
+
+        # Middle Column: Neural Activity
+        self.activity_panel = pygame.Rect(400, 10, 570, self.height - 20)
+
+        # Right Column: Synaptic Weights (top half) and Population Firing Rates (bottom half)
+        right_column_x = 980
+        right_column_width = self.width - right_column_x - 10
+        panel_spacing = 10
+
+        # Synaptic Weights panel (top half of right column)
+        weights_height = (self.height - 30 - panel_spacing) // 2
+        self.weights_panel = pygame.Rect(right_column_x, 10, right_column_width, weights_height)
+
+        # Population Firing Rates panel (bottom half of right column)
+        self.rate_panel = pygame.Rect(right_column_x, self.weights_panel.bottom + panel_spacing,
+                                     right_column_width, weights_height)
+
+        # Sub-rects for raster plots - increased spacing to prevent overlaps
+        plot_margin = 40
+        plot_spacing = 45  # Increased from 30 to 45 pixels for better separation
+        scrollbar_space = 60  # Increased space for scrollbar and time labels
+        title_space = 40  # Space for main panel title
+
+        available_height = self.activity_panel.height - title_space - scrollbar_space
+        plot_height = (available_height - plot_spacing) // 2
+
         self.raster_A_rect = pygame.Rect(
-            self.activity_panel.x + 40,
-            self.activity_panel.y + 80,
-            self.activity_panel.width - 60,
-            (self.activity_panel.height - 150) // 2
+            self.activity_panel.x + plot_margin,
+            self.activity_panel.y + title_space,  # More space for main panel title
+            self.activity_panel.width - (2 * plot_margin),
+            plot_height
         )
         self.raster_B_rect = pygame.Rect(
-            self.activity_panel.x + 40,
-            self.raster_A_rect.bottom + 50,
-            self.activity_panel.width - 60,
-            (self.activity_panel.height - 150) // 2
+            self.activity_panel.x + plot_margin,
+            self.raster_A_rect.bottom + plot_spacing,  # Increased spacing
+            self.activity_panel.width - (2 * plot_margin),
+            plot_height
         )
 
-        # Sub-rects for weight matrices - ensure square proportions for 50x50 matrices
-        # Reorder to match neural activity panel: inhibitory (AB) at top, excitatory (BA) at bottom
-        matrix_size = 200  # Fixed size for square matrices
+        # Sub-rects for weight matrices - adjusted for smaller weights panel
+        # Use smaller matrices to fit in the reduced height
+        matrix_size = 120  # Further reduced size for better spacing
+        matrix_spacing = 50  # Increased spacing for better visual separation
+
         self.matrix_AB_rect = pygame.Rect(
             self.weights_panel.x + 10,
-            self.weights_panel.y + 60,  # Reduced from 140 to 60 to bring closer to title
+            self.weights_panel.y + 60,  # Increased space below panel title
             matrix_size,
             matrix_size
         )
         self.matrix_BA_rect = pygame.Rect(
             self.matrix_AB_rect.left,
-            self.matrix_AB_rect.bottom + 65,  # Increased from 40 to 65 to provide space for "No Conn" legend
+            self.matrix_AB_rect.bottom + matrix_spacing,
             matrix_size,
             matrix_size
         )
@@ -157,10 +187,30 @@ class NetworkVisualizer:
         # Adjacent to the existing heatmaps with proper spacing
         colorbar_width = 20 + 15 + 50  # colorbar + spacing + labels (from draw_weight_matrix)
         self.bipartite_graph_rect = pygame.Rect(
-            self.matrix_AB_rect.right + colorbar_width + 20,  # 20px spacing from colorbar area
+            self.matrix_AB_rect.right + colorbar_width + 15,  # Reduced spacing for smaller panel
             self.matrix_AB_rect.y,  # Align with top matrix
-            self.weights_panel.right - (self.matrix_AB_rect.right + colorbar_width + 20) - 10,  # Use remaining width
+            self.weights_panel.right - (self.matrix_AB_rect.right + colorbar_width + 15) - 10,  # Use remaining width
             self.matrix_BA_rect.bottom - self.matrix_AB_rect.y  # Full height of both matrices
+        )
+
+        # Scrollbar rectangles for horizontal scrolling - positioned below plots to avoid overlap
+        scrollbar_height = 20
+        scrollbar_margin = 5
+
+        # Raster plot scrollbar - positioned well below Layer B time labels
+        self.raster_scrollbar_rect = pygame.Rect(
+            self.raster_A_rect.x,
+            self.raster_B_rect.bottom + 30,  # Increased from scrollbar_margin to 30px
+            self.raster_A_rect.width,
+            scrollbar_height
+        )
+
+        # Rate plot scrollbar - positioned well below time-axis labels
+        self.rate_scrollbar_rect = pygame.Rect(
+            self.rate_panel.x + 50,  # Align with the actual plot area (accounting for y-axis labels)
+            self.rate_panel.bottom - 15,  # Moved closer to bottom, 25+ pixels below time labels
+            self.rate_panel.width - 60,  # Account for margins
+            scrollbar_height
         )
 
     def _create_ui_elements(self):
@@ -172,25 +222,26 @@ class NetworkVisualizer:
             manager=self.ui_manager,
             object_id='@title_label'
         )
+        # Connection and rate controls - moved down to make room for Time/FPS
         self.sparsity_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 70, 150, 20),
+            relative_rect=pygame.Rect(20, 80, 150, 20),
             text=f'Connect Prob: {self.network.connection_prob:.2f}',
             manager=self.ui_manager
         )
         self.rate_A_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 140, 150, 20),
+            relative_rect=pygame.Rect(20, 150, 150, 20),
             text=f'Spont Rate A: {self.network.background_rate_A:.1f} Hz',
             manager=self.ui_manager
         )
         self.rate_B_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 210, 150, 20),
+            relative_rect=pygame.Rect(20, 220, 150, 20),
             text=f'Spont Rate B: {self.network.background_rate_B:.1f} Hz',
             manager=self.ui_manager
         )
 
-        # --- Lognormal Distribution Labels ---
+        # --- Lognormal Distribution Labels - moved down to accommodate STDP controls ---
         pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 280, 360, 25),
+            relative_rect=pygame.Rect(20, 290, 350, 25),
             text="LOGNORMAL WEIGHT DISTRIBUTION",
             manager=self.ui_manager,
             object_id='@section_label'
@@ -198,131 +249,132 @@ class NetworkVisualizer:
 
         # W_BA (Excitatory) parameters
         pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 315, 170, 20),
+            relative_rect=pygame.Rect(20, 325, 170, 20),
             text="W_BA (Excitatory):",
             manager=self.ui_manager,
             object_id='@subsection_label'
         )
         self.mu_BA_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 345, 170, 20),
+            relative_rect=pygame.Rect(20, 355, 170, 20),
             text=f'μ (Mean): {self.network.lognorm_mu_BA:.2f}',
             manager=self.ui_manager
         )
         self.sigma_BA_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 395, 170, 20),
+            relative_rect=pygame.Rect(20, 405, 170, 20),
             text=f'σ (Std Dev): {self.network.lognorm_sigma_BA:.2f}',
             manager=self.ui_manager
         )
         self.scale_BA_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 445, 170, 20),
+            relative_rect=pygame.Rect(20, 455, 170, 20),
             text=f'Scale: {self.network.lognorm_scale_BA:.3f}',
             manager=self.ui_manager
         )
 
         # W_AB (Inhibitory) parameters
         pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(200, 315, 170, 20),
+            relative_rect=pygame.Rect(200, 325, 170, 20),
             text="W_AB (Inhibitory):",
             manager=self.ui_manager,
             object_id='@subsection_label'
         )
         self.mu_AB_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(200, 345, 170, 20),
+            relative_rect=pygame.Rect(200, 355, 170, 20),
             text=f'μ (Mean): {self.network.lognorm_mu_AB:.2f}',
             manager=self.ui_manager
         )
         self.sigma_AB_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(200, 395, 170, 20),
+            relative_rect=pygame.Rect(200, 405, 170, 20),
             text=f'σ (Std Dev): {self.network.lognorm_sigma_AB:.2f}',
             manager=self.ui_manager
         )
         self.scale_AB_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(200, 445, 170, 20),
+            relative_rect=pygame.Rect(200, 455, 170, 20),
             text=f'Scale: {self.network.lognorm_scale_AB:.3f}',
             manager=self.ui_manager
         )
 
+        # Time and FPS labels - moved higher in the control panel
         self.time_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 580, 180, 20),
+            relative_rect=pygame.Rect(20, 50, 180, 20),
             text="Time: 0.00 s",
             manager=self.ui_manager
         )
         self.fps_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(210, 580, 90, 20),
+            relative_rect=pygame.Rect(210, 50, 90, 20),
             text="FPS: 0",
             manager=self.ui_manager
         )
 
-        # --- Sliders ---
+        # --- Sliders - adjusted positions ---
         self.sparsity_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 100, 180, 25),
+            relative_rect=pygame.Rect(20, 110, 170, 25),
             start_value=self.network.connection_prob,
             value_range=(0.0, 1.0),
             click_increment=0.01,  # 1% increments for connection probability
             manager=self.ui_manager
         )
         self.rate_A_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 170, 180, 25),
+            relative_rect=pygame.Rect(20, 180, 170, 25),
             start_value=self.network.background_rate_A,
             value_range=(0.0, 50.0),
             click_increment=0.5,  # 0.5 Hz increments for background rates
             manager=self.ui_manager
         )
         self.rate_B_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 240, 180, 25),
+            relative_rect=pygame.Rect(20, 250, 170, 25),
             start_value=self.network.background_rate_B,
             value_range=(0.0, 50.0),
             click_increment=0.5,  # 0.5 Hz increments for background rates
             manager=self.ui_manager
         )
 
-        # --- STDP Rules Section ---
+        # --- STDP Rules Section - moved inside control panel ---
         pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(220, 70, 180, 25),
+            relative_rect=pygame.Rect(200, 80, 170, 25),
             text="STDP RULES",
             manager=self.ui_manager,
             object_id='@section_label'
         )
 
         self.estdp_button = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(220, 100, 180, 30),
+            relative_rect=pygame.Rect(200, 110, 170, 30),
             text='eSTDP: OFF',
             manager=self.ui_manager,
             object_id='#estdp_button'
         )
 
         self.hebbian_istdp_button = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(220, 140, 180, 30),
+            relative_rect=pygame.Rect(200, 150, 170, 30),
             text='iSTDP Hebbian: OFF',
             manager=self.ui_manager,
             object_id='#hebbian_istdp_button'
         )
 
         self.anti_hebbian_istdp_button = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(220, 180, 180, 30),
+            relative_rect=pygame.Rect(200, 190, 170, 30),
             text='iSTDP Anti-Hebb: OFF',
             manager=self.ui_manager,
             object_id='#anti_hebbian_istdp_button'
         )
 
-        # --- Lognormal Parameter Sliders ---
+        # --- Lognormal Parameter Sliders - adjusted positions ---
         # W_BA (Excitatory) sliders
         self.mu_BA_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 370, 170, 20),
+            relative_rect=pygame.Rect(20, 380, 170, 20),
             start_value=self.network.lognorm_mu_BA,
             value_range=(-3.0, 1.0),
             click_increment=0.05,  # 0.05 increments for mu (range: 4.0, so ~80 steps)
             manager=self.ui_manager
         )
         self.sigma_BA_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 420, 170, 20),
+            relative_rect=pygame.Rect(20, 430, 170, 20),
             start_value=self.network.lognorm_sigma_BA,
             value_range=(0.1, 2.0),
             click_increment=0.02,  # 0.02 increments for sigma (range: 1.9, so ~95 steps)
             manager=self.ui_manager
         )
         self.scale_BA_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 470, 170, 20),
+            relative_rect=pygame.Rect(20, 480, 170, 20),
             start_value=self.network.lognorm_scale_BA,
             value_range=(0.01, 1.0),
             click_increment=0.01,  # 0.01 increments for scale (range: 0.99, so ~99 steps)
@@ -331,41 +383,62 @@ class NetworkVisualizer:
 
         # W_AB (Inhibitory) sliders
         self.mu_AB_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(200, 370, 170, 20),
+            relative_rect=pygame.Rect(200, 380, 170, 20),
             start_value=self.network.lognorm_mu_AB,
             value_range=(-3.0, 1.0),
             click_increment=0.05,  # 0.05 increments for mu (range: 4.0, so ~80 steps)
             manager=self.ui_manager
         )
         self.sigma_AB_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(200, 420, 170, 20),
+            relative_rect=pygame.Rect(200, 430, 170, 20),
             start_value=self.network.lognorm_sigma_AB,
             value_range=(0.1, 2.0),
             click_increment=0.02,  # 0.02 increments for sigma (range: 1.9, so ~95 steps)
             manager=self.ui_manager
         )
         self.scale_AB_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(200, 470, 170, 20),
+            relative_rect=pygame.Rect(200, 480, 170, 20),
             start_value=self.network.lognorm_scale_AB,
             value_range=(0.01, 1.0),
             click_increment=0.01,  # 0.01 increments for scale (range: 0.99, so ~99 steps)
             manager=self.ui_manager
         )
 
-        # --- Buttons ---
+        # --- Buttons - repositioned for new layout ---
+        button_y = 520  # Position buttons lower to accommodate all controls
         self.reset_button = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(20, 500, 110, 35),
+            relative_rect=pygame.Rect(20, button_y, 110, 35),
             text='Reset',
             manager=self.ui_manager
         )
         self.pause_button = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(140, 500, 110, 35),
+            relative_rect=pygame.Rect(140, button_y, 110, 35),
             text='Pause',
             manager=self.ui_manager
         )
         self.regenerate_weights_button = pygame_gui.elements.UIButton(
-            relative_rect=pygame.Rect(260, 500, 110, 35),
+            relative_rect=pygame.Rect(260, button_y, 110, 35),
             text='Regen. W',
+            manager=self.ui_manager
+        )
+
+        # --- Scrollbars for Historical Data - initialized to show most recent data ---
+        # Raster plot scrollbar
+        max_raster_scroll = max(0, self.max_history_duration - self.raster_window)
+        self.raster_scrollbar = pygame_gui.elements.UIHorizontalSlider(
+            relative_rect=self.raster_scrollbar_rect,
+            start_value=max_raster_scroll,  # Start at maximum to show most recent data
+            value_range=(0.0, max_raster_scroll),
+            manager=self.ui_manager
+        )
+
+        # Rate plot scrollbar
+        rate_display_window_ms = self.rate_window * (self.rate_history_len / (self.max_history_duration / self.rate_window))
+        max_rate_scroll = max(0, self.max_history_duration - rate_display_window_ms)
+        self.rate_scrollbar = pygame_gui.elements.UIHorizontalSlider(
+            relative_rect=self.rate_scrollbar_rect,
+            start_value=max_rate_scroll,  # Start at maximum to show most recent data
+            value_range=(0.0, max_rate_scroll),
             manager=self.ui_manager
         )
 
@@ -400,7 +473,7 @@ class NetworkVisualizer:
         title_surf = self.THEME["font_m"].render(title, True, self.THEME["text"])
         self.screen.blit(title_surf, (rect.x + 10, rect.y + 10))
 
-    def draw_raster_plot(self, rect, spike_history, n_neurons, color, title):
+    def draw_raster_plot(self, rect, spike_history, n_neurons, color, title, scroll_offset=0.0):
         """Draw a rich raster plot for a neural population."""
         # --- Axis labels ---
         y_axis_label = self.THEME["font_s"].render("Neuron ID", True, self.THEME["text_dark"])
@@ -409,9 +482,9 @@ class NetworkVisualizer:
             (rect.x - 30, rect.centery - y_axis_label.get_width()//2)
         )
 
-        # --- Plot Title ---
+        # --- Plot Title - positioned inside plot area to avoid overlaps ---
         title_surf = self.THEME["font_m"].render(title, True, color)
-        self.screen.blit(title_surf, (rect.x, rect.y - 30))
+        self.screen.blit(title_surf, (rect.x + 5, rect.y + 5))
 
         # --- Draw complete grid with border ---
         # First draw the rectangular border around the entire plot area
@@ -424,8 +497,8 @@ class NetworkVisualizer:
                 pygame.draw.line(self.screen, self.THEME["grid"], (rect.x, y), (rect.right, y), 1)
 
         # Draw vertical grid lines (time divisions)
-        current_time = self.network.current_time
-        start_time = max(0, current_time - self.raster_window)
+        plot_end_time = self.network.current_time - scroll_offset
+        start_time = plot_end_time - self.raster_window
         for i in range(1, 5):  # Skip first and last (borders already drawn)
             t = start_time + i * self.raster_window / 4
             x = rect.x + (t - start_time) / self.raster_window * rect.width
@@ -440,7 +513,7 @@ class NetworkVisualizer:
 
         # --- Draw Spikes ---
         for spike_time, neuron_id in spike_history:
-            if start_time <= spike_time <= current_time:
+            if start_time <= spike_time <= plot_end_time:
                 x = rect.x + ((spike_time - start_time) / self.raster_window) * rect.width
                 y = rect.y + (neuron_id / n_neurons) * rect.height
                 if rect.collidepoint(x, y):
@@ -454,7 +527,7 @@ class NetworkVisualizer:
         if weights_cpu.size == 0:
             return
 
-        title_surf = self.THEME["font_m"].render(title, True, self.THEME["text"])
+        title_surf = self.THEME["font_s"].render(title, True, self.THEME["text"])
         self.screen.blit(title_surf, (rect.x, rect.y - 30))
 
         # Create mask for non-existent connections (weight = 0)
@@ -486,7 +559,7 @@ class NetworkVisualizer:
         self.screen.blit(scaled_surf, rect)
         pygame.draw.rect(self.screen, self.THEME["border"], rect, 1)
 
-        # --- Draw Colorbar ---
+        # --- Draw Colorbar with improved spacing ---
         cbar_rect = pygame.Rect(rect.right + 15, rect.y, 20, rect.height)
         for i in range(cbar_rect.height):
             # Interpolate color from bottom to top
@@ -500,14 +573,16 @@ class NetworkVisualizer:
                 1
             )
 
+        # Colorbar labels with increased horizontal padding and vertical spacing
         max_label = self.THEME["font_s"].render(f"{clim[1]:.1f}", True, self.THEME["text"])
         min_label = self.THEME["font_s"].render(f"{clim[0]:.1f}", True, self.THEME["text"])
-        self.screen.blit(max_label, (cbar_rect.right + 5, cbar_rect.top - max_label.get_height()//2))
-        self.screen.blit(min_label, (cbar_rect.right + 5, cbar_rect.bottom - min_label.get_height()//2))
+        label_padding = 5  # Reduced to bring labels closer to colorbar
+        self.screen.blit(max_label, (cbar_rect.right + label_padding, cbar_rect.top + 5))  # Added 5px vertical spacing
+        self.screen.blit(min_label, (cbar_rect.right + label_padding, cbar_rect.bottom - min_label.get_height() - 5))  # Added 5px vertical spacing
 
-        # Add legend for no-connection color
+        # Add legend for no-connection color - moved below colorbar
         no_conn_label = self.THEME["font_s"].render("No Conn", True, self.THEME["text"])
-        no_conn_rect = pygame.Rect(cbar_rect.left - 10, cbar_rect.bottom + 10, 15, 15)
+        no_conn_rect = pygame.Rect(cbar_rect.left, cbar_rect.bottom + 5, 15, 15)  # Moved below colorbar with 15px spacing
         pygame.draw.rect(self.screen, [c*255 for c in no_connection_color], no_conn_rect)
         pygame.draw.rect(self.screen, self.THEME["border"], no_conn_rect, 1)
         self.screen.blit(no_conn_label, (no_conn_rect.right + 5, no_conn_rect.y))
@@ -809,7 +884,7 @@ class NetworkVisualizer:
         self.rate_history_A.append(avg_rate_A)
         self.rate_history_B.append(avg_rate_B)
 
-    def draw_rate_plots(self, base_rect):
+    def draw_rate_plots(self, base_rect, scroll_offset=0.0):
         """Draw time-series plots of population firing rates."""
         # Use the full rate panel area with some padding
         plot_rect = pygame.Rect(base_rect.x + 10, base_rect.y + 10, base_rect.width - 20, base_rect.height - 20)
@@ -818,11 +893,27 @@ class NetworkVisualizer:
         # Draw plot area with more space for time axis labels
         graph_rect = pygame.Rect(plot_rect.x + 40, plot_rect.y + 30, plot_rect.width - 50, plot_rect.height - 60)
 
+        # Apply conditional data preparation based on simulation phase
+        current_time = self.network.current_time
+
+        if current_time <= self.max_history_duration:
+            # Phase 1: Show all data from start (ignore scroll_offset)
+            visible_history_A = list(self.rate_history_A)
+            visible_history_B = list(self.rate_history_B)
+        else:
+            # Phase 2: Apply scrolling offset to data
+            offset_points = int(scroll_offset / self.rate_update_interval)
+            display_points = self.rate_history_len // 2
+            end_idx = len(self.rate_history_A) - offset_points
+            start_idx = max(0, end_idx - display_points)
+            visible_history_A = list(self.rate_history_A)[start_idx:end_idx]
+            visible_history_B = list(self.rate_history_B)[start_idx:end_idx]
+
         # Determine max rate for y-axis scaling, with dynamic minimum
         all_rates = []
-        if self.rate_history_A:
+        if visible_history_A:
             all_rates.extend(self.rate_history_A)
-        if self.rate_history_B:
+        if visible_history_B:
             all_rates.extend(self.rate_history_B)
 
         if all_rates:
@@ -876,44 +967,87 @@ class NetworkVisualizer:
             y_label = self.THEME["font_s"].render(f"{y_val:.1f}", True, self.THEME["text_dark"])
             self.screen.blit(y_label, (graph_rect.left - 35, y_pos - y_label.get_height()//2))
 
-        # Time axis labels and vertical grid lines
+        # Time axis labels and vertical grid lines - conditional behavior for initial phase
         current_time = self.network.current_time
-        time_window = self.rate_history_len * self.rate_update_interval  # Total time window in ms
-        start_time = max(0, current_time - time_window)
 
-        for i in range(5):
-            time_val = start_time + (time_window * i / 4)
-            x_pos = graph_rect.left + (i / 4) * graph_rect.width
+        # Phase 1: Initial 20 seconds - Fixed x-axis from 0 to 20s
+        if current_time <= self.max_history_duration:
+            # Fixed x-axis: 0 to max_history_duration (20 seconds)
+            display_start_time = 0
+            display_end_time = self.max_history_duration
+            time_window = self.max_history_duration
 
-            # Vertical grid line
-            pygame.draw.line(
-                self.screen,
-                self.THEME["grid"],
-                (x_pos, graph_rect.top),
-                (x_pos, graph_rect.bottom),
-                1
-            )
+            # Static time labels: "0.0s", "5.0s", "10.0s", "15.0s", "20.0s"
+            for i in range(5):
+                time_val = (self.max_history_duration / 1000.0) * i / 4  # Convert to seconds
+                x_pos = graph_rect.left + (i / 4) * graph_rect.width
 
-            # Time label
-            time_label = self.THEME["font_s"].render(f"{time_val/1000:.1f}s", True, self.THEME["text_dark"])
-            self.screen.blit(time_label, (x_pos - time_label.get_width()//2, graph_rect.bottom + 5))
+                # Vertical grid line
+                pygame.draw.line(
+                    self.screen,
+                    self.THEME["grid"],
+                    (x_pos, graph_rect.top),
+                    (x_pos, graph_rect.bottom),
+                    1
+                )
 
-        # --- Plot data ---
+                # Fixed time labels
+                time_label = self.THEME["font_s"].render(f"{time_val:.1f}s", True, self.THEME["text_dark"])
+                self.screen.blit(time_label, (x_pos - time_label.get_width()//2, graph_rect.bottom + 5))
+
+        # Phase 2: After 20 seconds - Scrolling behavior with scroll_offset
+        else:
+            time_window = self.rate_history_len * self.rate_update_interval  # Total time window in ms
+            start_time_offset = scroll_offset  # Use scroll_offset directly
+            display_start_time = max(0, current_time - time_window - start_time_offset)
+            display_end_time = display_start_time + time_window
+
+            for i in range(5):
+                time_val = display_start_time + (time_window * i / 4)
+                x_pos = graph_rect.left + (i / 4) * graph_rect.width
+
+                # Vertical grid line
+                pygame.draw.line(
+                    self.screen,
+                    self.THEME["grid"],
+                    (x_pos, graph_rect.top),
+                    (x_pos, graph_rect.bottom),
+                    1
+                )
+
+                # Time label - reflects actual scrolled time range
+                time_label = self.THEME["font_s"].render(f"{time_val/1000:.1f}s", True, self.THEME["text_dark"])
+                self.screen.blit(time_label, (x_pos - time_label.get_width()//2, graph_rect.bottom + 5))
+
+        # --- Plot data with conditional behavior ---
         def plot_line(history, color):
             if len(history) > 1:
                 points = []
-                for i, rate in enumerate(history):
-                    x = graph_rect.x + (i / (self.rate_history_len-1)) * graph_rect.width
-                    y = graph_rect.bottom - ((rate - min_rate) / (max_rate - min_rate)) * graph_rect.height
-                    points.append((x, y))
+
+                if current_time <= self.max_history_duration:
+                    # Phase 1: Plot based on actual timestamps within 0-20s window
+                    for i, rate in enumerate(history):
+                        # Calculate actual time for this data point
+                        actual_time = i * self.rate_update_interval
+                        # Map to x position within the 0-20s window
+                        x = graph_rect.x + (actual_time / self.max_history_duration) * graph_rect.width
+                        y = graph_rect.bottom - ((rate - min_rate) / (max_rate - min_rate)) * graph_rect.height
+                        points.append((x, y))
+                else:
+                    # Phase 2: Use existing index-based plotting
+                    for i, rate in enumerate(history):
+                        x = graph_rect.x + (i / (len(history)-1)) * graph_rect.width
+                        y = graph_rect.bottom - ((rate - min_rate) / (max_rate - min_rate)) * graph_rect.height
+                        points.append((x, y))
+
                 pygame.draw.lines(self.screen, color, False, points, 2)
 
-        plot_line(self.rate_history_A, self.THEME["layer_a"])
-        plot_line(self.rate_history_B, self.THEME["layer_b"])
+        plot_line(visible_history_A, self.THEME["layer_a"])
+        plot_line(visible_history_B, self.THEME["layer_b"])
 
-        # Add legend outside the plot area with background for better visibility
-        legend_x = plot_rect.right + 5  # Position outside the plot area
-        legend_y = plot_rect.y + 35
+        # Add legend inside the plot area (top-right corner) with 10px margins
+        legend_x = graph_rect.right - 70  # Position inside plot area with 10px margin from right
+        legend_y = graph_rect.y + 10  # 10px margin from top
 
         # Create background rectangles for better contrast
         legend_a = self.THEME["font_s"].render("Layer A", True, self.THEME["layer_a"])
@@ -972,6 +1106,17 @@ class NetworkVisualizer:
                 elif event.ui_element == self.scale_AB_slider:
                     self.network.update_lognormal_parameters(scale_AB=event.value)
                     self.scale_AB_label.set_text(f'Scale: {event.value:.3f}')
+
+                # Handle scrollbar events
+                elif event.ui_element == self.raster_scrollbar:
+                    # Invert scrollbar value so dragging right shows newer data
+                    max_raster_scroll = max(0, self.max_history_duration - self.raster_window)
+                    self.raster_scroll_offset = max_raster_scroll - event.value
+                elif event.ui_element == self.rate_scrollbar:
+                    # Invert scrollbar value so dragging right shows newer data
+                    rate_display_window_ms = self.rate_window * (self.rate_history_len / (self.max_history_duration / self.rate_window))
+                    max_rate_scroll = max(0, self.max_history_duration - rate_display_window_ms)
+                    self.rate_scroll_offset = max_rate_scroll - event.value
 
             elif event.user_type == pygame_gui.UI_BUTTON_PRESSED:
                 if event.ui_element == self.reset_button:
@@ -1046,17 +1191,25 @@ class NetworkVisualizer:
                 for _ in range(5):
                     spikes_A, spikes_B = self.network.update()
                     current_time = self.network.current_time
-                    # Record spikes with a cap to prevent performance degradation
-                    if len(self.spike_history_A) > 5000:
-                        self.spike_history_A.popleft()
-                    if len(self.spike_history_B) > 5000:
-                        self.spike_history_B.popleft()
+                    # Record spikes and clean up old history based on time
                     for neuron_id in spikes_A:
                         self.spike_history_A.append((current_time, neuron_id))
                     for neuron_id in spikes_B:
                         self.spike_history_B.append((current_time, neuron_id))
 
+                    # Remove spikes older than max_history_duration
+                    while self.spike_history_A and (current_time - self.spike_history_A[0][0]) > self.max_history_duration:
+                        self.spike_history_A.popleft()
+                    while self.spike_history_B and (current_time - self.spike_history_B[0][0]) > self.max_history_duration:
+                        self.spike_history_B.popleft()
+
                 self.calculate_and_update_rates()
+
+                # --- Auto-follow: keep scrollbars at maximum to show latest data ---
+                self.raster_scrollbar.set_current_value(self.raster_scrollbar.value_range[1])
+                self.rate_scrollbar.set_current_value(self.rate_scrollbar.value_range[1])
+                self.raster_scroll_offset = 0
+                self.rate_scroll_offset = 0
 
             # --- Update UI and Labels ---
             self.ui_manager.update(time_delta)
@@ -1080,14 +1233,16 @@ class NetworkVisualizer:
                 self.spike_history_A,
                 self.network.n_A,
                 self.THEME["layer_a"],
-                "Layer A (Inhibitory)"
+                "Layer A (Inhibitory)",
+                self.raster_scroll_offset
             )
             self.draw_raster_plot(
                 self.raster_B_rect,
                 self.spike_history_B,
                 self.network.n_B,
                 self.THEME["layer_b"],
-                "Layer B (Excitatory)"
+                "Layer B (Excitatory)",
+                self.raster_scroll_offset
             )
 
             self.draw_weight_matrix(
@@ -1113,7 +1268,7 @@ class NetworkVisualizer:
                 "Connectivity Graph (top 10%)"
             )
 
-            self.draw_rate_plots(self.rate_panel)
+            self.draw_rate_plots(self.rate_panel, self.rate_scroll_offset)
 
             # Draw UI on top
             self.ui_manager.draw_ui(self.screen)
