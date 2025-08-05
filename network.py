@@ -109,10 +109,7 @@ class BipartiteNetwork:
         self.spike_history_idx_A = self.xp.zeros(n_A, dtype=self.xp.int32)  # Current index in circular buffer
         self.spike_history_idx_B = self.xp.zeros(n_B, dtype=self.xp.int32)  # Current index in circular buffer
 
-        # For backward compatibility, create empty layer attributes
-        # These are no longer used but may be referenced by external code
-        self.layer_A = None  # Deprecated: use vectorized arrays instead
-        self.layer_B = None  # Deprecated: use vectorized arrays instead
+
 
         # STDP parameters
         self.A_LTP = 0.01  # Long-term potentiation amplitude
@@ -131,6 +128,11 @@ class BipartiteNetwork:
         self.current_time = 0.0
         self.background_rate_A = 5.0  # Background Poisson input rate for Layer A in Hz
         self.background_rate_B = 5.0  # Background Poisson input rate for Layer B in Hz
+
+        # STDP control flags (add after existing parameter initialization)
+        self.eSTDP_enabled = False  # Controls excitatory STDP (B->A connections)
+        self.iSTDP_enabled = False  # Master switch for inhibitory STDP (A->B connections)
+        self.is_iSTDP_anti_hebbian = False  # True=anti-Hebbian, False=Hebbian for inhibitory STDP
 
         # Pre-allocate spike arrays for performance (backend-agnostic)
         self.spikes_A_arr = self.xp.zeros(self.n_A, dtype=bool)
@@ -608,22 +610,25 @@ class BipartiteNetwork:
         )
 
         # --- 3. Backend-Accelerated STDP Application ---
-        # B -> A (Excitatory) connections
-        if len(spiked_A_indices) > 0:
+        # B -> A (Excitatory) connections - only apply if eSTDP is enabled
+        if self.eSTDP_enabled and len(spiked_A_indices) > 0:
             delta_W_BA = self._vectorized_stdp_calculation(
                 spiked_A_indices, 'B', 'A', self.W_BA, self.connection_mask_BA
             )
             self.W_BA += delta_W_BA
 
-        # A -> B (Inhibitory) connections - Anti-Hebbian STDP
-        if len(spiked_B_indices) > 0:
+        # A -> B (Inhibitory) connections - only apply if iSTDP is enabled
+        if self.iSTDP_enabled and len(spiked_B_indices) > 0:
             delta_W_AB = self._vectorized_stdp_calculation(
                 spiked_B_indices, 'A', 'B', self.W_AB, self.connection_mask_AB
             )
-            # Anti-Hebbian STDP: Invert weight update sign for inhibitory connections
-            # Pre-before-post → LTD (strengthen inhibition = more negative)
-            # Post-before-pre → LTP (weaken inhibition = less negative)
-            self.W_AB -= delta_W_AB
+            # Apply Hebbian or anti-Hebbian rule based on the flag
+            if self.is_iSTDP_anti_hebbian:
+                # Anti-Hebbian: Causal spikes weaken, anti-causal spikes strengthen inhibition
+                self.W_AB += delta_W_AB
+            else:
+                # Hebbian: Causal spikes strengthen, anti-causal spikes weaken inhibition
+                self.W_AB -= delta_W_AB
 
         # Clip weights to valid ranges while preserving sparse connectivity
         self.W_BA = self.xp.clip(self.W_BA, 0.0, 1.0)

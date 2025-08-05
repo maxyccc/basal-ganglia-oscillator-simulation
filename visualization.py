@@ -118,7 +118,7 @@ class NetworkVisualizer:
     def _setup_layout(self):
         """Define the geometry of all UI panels."""
         # Optimized layout with combined time/FPS labels to save vertical space
-        self.controls_panel = pygame.Rect(10, 10, 380, 600)  # Reduced height due to combined labels
+        self.controls_panel = pygame.Rect(10, 10, 500, 600)  # Increased width from 380 to 500
         self.rate_panel = pygame.Rect(10, 620, 380, self.height - 630)  # Expanded panel for better visualization
         self.activity_panel = pygame.Rect(400, 10, 570, self.height - 20)  # Adjusted position
         self.weights_panel = pygame.Rect(980, 10, 610, self.height - 20)
@@ -173,18 +173,18 @@ class NetworkVisualizer:
             object_id='@title_label'
         )
         self.sparsity_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 70, 280, 20),
-            text=f'Connection Prob: {self.network.connection_prob:.2f}',
+            relative_rect=pygame.Rect(20, 70, 150, 20),
+            text=f'Connect Prob: {self.network.connection_prob:.2f}',
             manager=self.ui_manager
         )
         self.rate_A_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 140, 280, 20),
-            text=f'Background Rate A: {self.network.background_rate_A:.1f} Hz',
+            relative_rect=pygame.Rect(20, 140, 150, 20),
+            text=f'Spont Rate A: {self.network.background_rate_A:.1f} Hz',
             manager=self.ui_manager
         )
         self.rate_B_label = pygame_gui.elements.UILabel(
-            relative_rect=pygame.Rect(20, 210, 280, 20),
-            text=f'Background Rate B: {self.network.background_rate_B:.1f} Hz',
+            relative_rect=pygame.Rect(20, 210, 150, 20),
+            text=f'Spont Rate B: {self.network.background_rate_B:.1f} Hz',
             manager=self.ui_manager
         )
 
@@ -255,25 +255,54 @@ class NetworkVisualizer:
 
         # --- Sliders ---
         self.sparsity_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 100, 280, 25),
+            relative_rect=pygame.Rect(20, 100, 180, 25),
             start_value=self.network.connection_prob,
             value_range=(0.0, 1.0),
             click_increment=0.01,  # 1% increments for connection probability
             manager=self.ui_manager
         )
         self.rate_A_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 170, 280, 25),
+            relative_rect=pygame.Rect(20, 170, 180, 25),
             start_value=self.network.background_rate_A,
             value_range=(0.0, 50.0),
             click_increment=0.5,  # 0.5 Hz increments for background rates
             manager=self.ui_manager
         )
         self.rate_B_slider = pygame_gui.elements.UIHorizontalSlider(
-            relative_rect=pygame.Rect(20, 240, 280, 25),
+            relative_rect=pygame.Rect(20, 240, 180, 25),
             start_value=self.network.background_rate_B,
             value_range=(0.0, 50.0),
             click_increment=0.5,  # 0.5 Hz increments for background rates
             manager=self.ui_manager
+        )
+
+        # --- STDP Rules Section ---
+        pygame_gui.elements.UILabel(
+            relative_rect=pygame.Rect(220, 70, 180, 25),
+            text="STDP RULES",
+            manager=self.ui_manager,
+            object_id='@section_label'
+        )
+
+        self.estdp_button = pygame_gui.elements.UIButton(
+            relative_rect=pygame.Rect(220, 100, 180, 30),
+            text='eSTDP: OFF',
+            manager=self.ui_manager,
+            object_id='#estdp_button'
+        )
+
+        self.hebbian_istdp_button = pygame_gui.elements.UIButton(
+            relative_rect=pygame.Rect(220, 140, 180, 30),
+            text='iSTDP Hebbian: OFF',
+            manager=self.ui_manager,
+            object_id='#hebbian_istdp_button'
+        )
+
+        self.anti_hebbian_istdp_button = pygame_gui.elements.UIButton(
+            relative_rect=pygame.Rect(220, 180, 180, 30),
+            text='iSTDP Anti-Hebb: OFF',
+            manager=self.ui_manager,
+            object_id='#anti_hebbian_istdp_button'
         )
 
         # --- Lognormal Parameter Sliders ---
@@ -362,56 +391,7 @@ class NetworkVisualizer:
                 'scale_AB': self.scale_AB_slider.get_current_value(),
             }
 
-    def _check_slider_changes(self):
-        """Check for slider value changes and update labels accordingly."""
-        # Check if sliders exist (they're created in _create_ui_elements)
-        if not hasattr(self, 'sparsity_slider'):
-            return
 
-        sliders_to_check = [
-            ('sparsity', self.sparsity_slider, self.sparsity_label, 'Connection Prob: {:.2f}'),
-            ('rate_A', self.rate_A_slider, self.rate_A_label, 'Background Rate A: {:.1f} Hz'),
-            ('rate_B', self.rate_B_slider, self.rate_B_label, 'Background Rate B: {:.1f} Hz'),
-            ('mu_BA', self.mu_BA_slider, self.mu_BA_label, 'μ (Mean): {:.2f}'),
-            ('sigma_BA', self.sigma_BA_slider, self.sigma_BA_label, 'σ (Std Dev): {:.2f}'),
-            ('scale_BA', self.scale_BA_slider, self.scale_BA_label, 'Scale: {:.3f}'),
-            ('mu_AB', self.mu_AB_slider, self.mu_AB_label, 'μ (Mean): {:.2f}'),
-            ('sigma_AB', self.sigma_AB_slider, self.sigma_AB_label, 'σ (Std Dev): {:.2f}'),
-            ('scale_AB', self.scale_AB_slider, self.scale_AB_label, 'Scale: {:.3f}'),
-        ]
-
-        for slider_name, slider, label, format_str in sliders_to_check:
-            current_value = slider.get_current_value()
-            prev_value = self.prev_slider_values.get(slider_name)
-
-            if prev_value is None or abs(current_value - prev_value) > 1e-6:
-                # Value has changed, update the network and label
-                self.prev_slider_values[slider_name] = current_value
-
-                # Update network parameters and labels
-                if slider_name == 'sparsity':
-                    # Update connection probability and regenerate connectivity in real-time
-                    self.network.connection_prob = current_value
-                    self.network.initialize_connections()
-                elif slider_name == 'rate_A':
-                    self.network.background_rate_A = current_value
-                elif slider_name == 'rate_B':
-                    self.network.background_rate_B = current_value
-                elif slider_name == 'mu_BA':
-                    self.network.update_lognormal_parameters(mu_BA=current_value)
-                elif slider_name == 'sigma_BA':
-                    self.network.update_lognormal_parameters(sigma_BA=current_value)
-                elif slider_name == 'scale_BA':
-                    self.network.update_lognormal_parameters(scale_BA=current_value)
-                elif slider_name == 'mu_AB':
-                    self.network.update_lognormal_parameters(mu_AB=current_value)
-                elif slider_name == 'sigma_AB':
-                    self.network.update_lognormal_parameters(sigma_AB=current_value)
-                elif slider_name == 'scale_AB':
-                    self.network.update_lognormal_parameters(scale_AB=current_value)
-
-                # Update label
-                label.set_text(format_str.format(current_value))
 
     def _draw_panel(self, rect, title):
         """Helper to draw a styled panel background and title."""
@@ -534,7 +514,10 @@ class NetworkVisualizer:
 
     def draw_bipartite_graph(self, rect, W_AB, W_BA, title):
         """
-        Draw a bipartite graph visualization of synaptic weights.
+        Draw a split bipartite graph visualization of synaptic weights.
+
+        Displays inhibitory and excitatory connections in separate subpanels
+        for improved readability and analysis.
 
         Args:
             rect (pygame.Rect): Rectangle to draw the graph within
@@ -549,121 +532,264 @@ class NetworkVisualizer:
         if W_AB_cpu.size == 0 or W_BA_cpu.size == 0:
             return
 
-        # Draw title
+        # Draw main title
         title_surf = self.THEME["font_m"].render(title, True, self.THEME["text"])
         self.screen.blit(title_surf, (rect.x, rect.y - 30))
 
-        # Define node parameters
-        n_A, n_B = W_AB_cpu.shape[0], W_BA_cpu.shape[0]  # A neurons, B neurons
+        # Define common parameters
+        n_A = self.network.n_A  # A neurons (inhibitory)
+        n_B = self.network.n_B  # B neurons (excitatory)
         node_radius = 3
+        scale_factor = 2.5
+        max_line_width = 2
+
+        # Calculate dynamic thresholds for each connection type using count-based approach
+        # Inhibitory threshold from W_AB_cpu matrix
+        inhibitory_weights = W_AB_cpu[W_AB_cpu != 0]  # Extract non-zero values
+        if len(inhibitory_weights) > 0:
+            abs_weights = np.abs(inhibitory_weights)  # Take absolute values (inhibitory weights may be negative)
+            sorted_weights = np.sort(abs_weights)[::-1]  # Sort in descending order
+            num_connections = len(sorted_weights)
+            top_10_percent_count = int(np.ceil(0.1 * num_connections))  # Exactly top 10% count
+            if top_10_percent_count > 0:
+                cutoff_weight = sorted_weights[top_10_percent_count - 1]  # Weight of weakest in top 10%
+                inhibitory_threshold = cutoff_weight - 1e-9  # Slightly below to ensure strict > works
+            else:
+                inhibitory_threshold = float('inf')  # Edge case: no connections to show
+        else:
+            inhibitory_threshold = float('inf')  # No connections exist, prevent any drawing
+
+        # Excitatory threshold from W_BA_cpu matrix
+        excitatory_weights = W_BA_cpu[W_BA_cpu != 0]  # Extract non-zero values
+        if len(excitatory_weights) > 0:
+            sorted_weights = np.sort(excitatory_weights)[::-1]  # Sort in descending order
+            num_connections = len(sorted_weights)
+            top_10_percent_count = int(np.ceil(0.1 * num_connections))  # Exactly top 10% count
+            if top_10_percent_count > 0:
+                cutoff_weight = sorted_weights[top_10_percent_count - 1]  # Weight of weakest in top 10%
+                excitatory_threshold = cutoff_weight - 1e-9  # Slightly below to ensure strict > works
+            else:
+                excitatory_threshold = float('inf')  # Edge case: no connections to show
+        else:
+            excitatory_threshold = float('inf')  # No connections exist, prevent any drawing
+
+        # Split the main rectangle into two subpanels
+        subpanel_spacing = 10
+        subpanel_height = (rect.height - subpanel_spacing) // 2
+
+        # Top subpanel: Inhibitory connections (A -> B)
+        inhibitory_rect = pygame.Rect(rect.x, rect.y, rect.width, subpanel_height)
+
+        # Bottom subpanel: Excitatory connections (B -> A)
+        excitatory_rect = pygame.Rect(rect.x, rect.y + subpanel_height + subpanel_spacing,
+                                     rect.width, subpanel_height)
+
+        # Draw inhibitory connections subpanel
+        self._draw_inhibitory_subpanel(inhibitory_rect, W_AB_cpu, n_A, n_B,
+                                     node_radius, scale_factor, max_line_width, inhibitory_threshold)
+
+        # Draw excitatory connections subpanel
+        self._draw_excitatory_subpanel(excitatory_rect, W_BA_cpu, n_A, n_B,
+                                     node_radius, scale_factor, max_line_width, excitatory_threshold)
+
+    def _draw_inhibitory_subpanel(self, rect, W_AB_cpu, n_A, n_B, node_radius,
+                                 scale_factor, max_line_width, threshold):
+        """
+        Draw the inhibitory connections subpanel (A -> B).
+
+        Shows Layer A neurons on the left, Layer B neurons on the right,
+        with blue inhibitory connection lines.
+        """
+        # Draw subpanel title
+        title_surf = self.THEME["font_s"].render("Inhibitory Connections (A -> B)",
+                                                True, self.THEME["layer_a"])
+        title_pos = (rect.x + 5, rect.y + 2)
+        self.screen.blit(title_surf, title_pos)
 
         # Calculate node positions
-        # Layer A nodes on the left side
         left_margin = 20
         right_margin = 20
         layer_A_x = rect.x + left_margin
         layer_B_x = rect.right - right_margin
 
-        # Distribute nodes evenly across height with padding
-        top_padding = 10
+        # Distribute nodes evenly across height with padding for title
+        top_padding = 25  # Extra space for title
         bottom_padding = 10
         available_height = rect.height - top_padding - bottom_padding
 
+        # Calculate Layer A positions (left side)
         layer_A_positions = []
-        layer_B_positions = []
-
         for i in range(n_A):
-            y = rect.y + top_padding + (i / max(1, n_A - 1)) * available_height if n_A > 1 else rect.centery
+            if n_A > 1:
+                y = rect.y + top_padding + (i / (n_A - 1)) * available_height
+            else:
+                y = rect.y + rect.height // 2
             layer_A_positions.append((layer_A_x, int(y)))
 
+        # Calculate Layer B positions (right side)
+        layer_B_positions = []
         for i in range(n_B):
-            y = rect.y + top_padding + (i / max(1, n_B - 1)) * available_height if n_B > 1 else rect.centery
+            if n_B > 1:
+                y = rect.y + top_padding + (i / (n_B - 1)) * available_height
+            else:
+                y = rect.y + rect.height // 2
             layer_B_positions.append((layer_B_x, int(y)))
 
-        # Draw connections (edges) first so they appear behind nodes
-        scale_factor = 2.5  # Reduced scale factor for better line visibility
-        max_line_width = 4  # Maximum line width cap to prevent overly thick lines
-        threshold = 0.1  # Only draw connections above this threshold
-
-        # Create a transparent surface for drawing connections with alpha blending
+        # Create transparent surface for connections
         connection_surface = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-        connection_surface.fill((0, 0, 0, 0))  # Transparent background
+        connection_surface.fill((0, 0, 0, 0))
 
-        # Adjust positions relative to the connection surface
-        surface_offset_x = rect.x
-        surface_offset_y = rect.y
-
-        # Draw excitatory connections (B -> A, from W_BA matrix) with transparency
-        for i in range(n_B):  # Source: B neurons
-            for j in range(n_A):  # Target: A neurons
-                weight = W_BA_cpu[i, j]
-                if abs(weight) > threshold:
-                    line_width = min(max_line_width, max(1, int(1 + abs(weight) * scale_factor)))
-                    start_pos = (layer_B_positions[i][0] - surface_offset_x,
-                                layer_B_positions[i][1] - surface_offset_y)
-                    end_pos = (layer_A_positions[j][0] - surface_offset_x,
-                              layer_A_positions[j][1] - surface_offset_y)
-                    # Use semi-transparent red for excitatory connections
-                    color_with_alpha = (*self.THEME["layer_b"], 180)  # 180/255 ≈ 70% opacity
-                    pygame.draw.line(connection_surface, color_with_alpha, start_pos, end_pos, line_width)
-
-        # Draw inhibitory connections (A -> B, from W_AB matrix) with transparency
+        # Draw inhibitory connections (A -> B)
         for i in range(n_A):  # Source: A neurons
             for j in range(n_B):  # Target: B neurons
-                weight = W_AB_cpu[i, j]
+                weight = W_AB_cpu[j, i]
                 if abs(weight) > threshold:
                     line_width = min(max_line_width, max(1, int(1 + abs(weight) * scale_factor)))
-                    start_pos = (layer_A_positions[i][0] - surface_offset_x,
-                                layer_A_positions[i][1] - surface_offset_y)
-                    end_pos = (layer_B_positions[j][0] - surface_offset_x,
-                              layer_B_positions[j][1] - surface_offset_y)
-                    # Use semi-transparent blue for inhibitory connections
-                    color_with_alpha = (*self.THEME["layer_a"], 180)  # 180/255 ≈ 70% opacity
+                    start_pos = (layer_A_positions[i][0] - rect.x,
+                                layer_A_positions[i][1] - rect.y)
+                    end_pos = (layer_B_positions[j][0] - rect.x,
+                              layer_B_positions[j][1] - rect.y)
+                    # Blue color for inhibitory connections
+                    color_with_alpha = (*self.THEME["layer_a"], 180)
                     pygame.draw.line(connection_surface, color_with_alpha, start_pos, end_pos, line_width)
 
-        # Blit the transparent connection surface to the main screen
+        # Blit connections to screen
         self.screen.blit(connection_surface, (rect.x, rect.y))
 
         # Draw nodes on top of connections
-        # Layer A nodes (inhibitory)
+        # Layer A nodes (inhibitory) - left side
         for pos in layer_A_positions:
             pygame.draw.circle(self.screen, self.THEME["layer_a"], pos, node_radius)
             pygame.draw.circle(self.screen, self.THEME["border"], pos, node_radius, 1)
 
-        # Layer B nodes (excitatory)
+        # Layer B nodes (excitatory) - right side
         for pos in layer_B_positions:
             pygame.draw.circle(self.screen, self.THEME["layer_b"], pos, node_radius)
             pygame.draw.circle(self.screen, self.THEME["border"], pos, node_radius, 1)
 
-        # Add layer labels for clarity - positioned at top to avoid connection line overlap
+        # Add layer labels
         layer_a_label = self.THEME["font_s"].render("Layer A", True, self.THEME["layer_a"])
         layer_b_label = self.THEME["font_s"].render("Layer B", True, self.THEME["layer_b"])
 
-        # Layer A label (positioned at top-left of node column with background)
-        layer_a_label_pos = (
-            layer_A_x - layer_a_label.get_width() // 2,  # Center horizontally on node column
-            rect.y + 5  # Position near top with padding
-        )
-        # Background rectangle for Layer A label
+        # Layer A label (bottom-left)
+        layer_a_label_pos = (layer_A_x - layer_a_label.get_width() // 2,
+                            rect.bottom - 20)
         layer_a_bg = pygame.Rect(layer_a_label_pos[0] - 2, layer_a_label_pos[1] - 2,
                                 layer_a_label.get_width() + 4, layer_a_label.get_height() + 4)
         pygame.draw.rect(self.screen, self.THEME["panel_bg"], layer_a_bg)
         pygame.draw.rect(self.screen, self.THEME["border"], layer_a_bg, 1)
         self.screen.blit(layer_a_label, layer_a_label_pos)
 
-        # Layer B label (positioned at top-right of node column with background)
-        layer_b_label_pos = (
-            layer_B_x - layer_b_label.get_width() // 2,  # Center horizontally on node column
-            rect.y + 5  # Position near top with padding
-        )
-        # Background rectangle for Layer B label
+        # Layer B label (bottom-right)
+        layer_b_label_pos = (layer_B_x - layer_b_label.get_width() // 2,
+                            rect.bottom - 20)
         layer_b_bg = pygame.Rect(layer_b_label_pos[0] - 2, layer_b_label_pos[1] - 2,
                                 layer_b_label.get_width() + 4, layer_b_label.get_height() + 4)
         pygame.draw.rect(self.screen, self.THEME["panel_bg"], layer_b_bg)
         pygame.draw.rect(self.screen, self.THEME["border"], layer_b_bg, 1)
         self.screen.blit(layer_b_label, layer_b_label_pos)
 
-        # Draw border around the entire graph area
+        # Draw border around subpanel
+        pygame.draw.rect(self.screen, self.THEME["border"], rect, 1)
+
+    def _draw_excitatory_subpanel(self, rect, W_BA_cpu, n_A, n_B, node_radius,
+                                 scale_factor, max_line_width, threshold):
+        """
+        Draw the excitatory connections subpanel (B -> A).
+
+        Shows Layer B neurons on the left, Layer A neurons on the right,
+        with red excitatory connection lines.
+        """
+        # Draw subpanel title
+        title_surf = self.THEME["font_s"].render("Excitatory Connections (B -> A)",
+                                                True, self.THEME["layer_b"])
+        title_pos = (rect.x + 5, rect.y + 2)
+        self.screen.blit(title_surf, title_pos)
+
+        # Calculate node positions
+        left_margin = 20
+        right_margin = 20
+        layer_B_x = rect.x + left_margin  # B neurons on left for B->A connections
+        layer_A_x = rect.right - right_margin  # A neurons on right
+
+        # Distribute nodes evenly across height with padding for title
+        top_padding = 25  # Extra space for title
+        bottom_padding = 10
+        available_height = rect.height - top_padding - bottom_padding
+
+        # Calculate Layer B positions (left side)
+        layer_B_positions = []
+        for i in range(n_B):
+            if n_B > 1:
+                y = rect.y + top_padding + (i / (n_B - 1)) * available_height
+            else:
+                y = rect.y + rect.height // 2
+            layer_B_positions.append((layer_B_x, int(y)))
+
+        # Calculate Layer A positions (right side)
+        layer_A_positions = []
+        for i in range(n_A):
+            if n_A > 1:
+                y = rect.y + top_padding + (i / (n_A - 1)) * available_height
+            else:
+                y = rect.y + rect.height // 2
+            layer_A_positions.append((layer_A_x, int(y)))
+
+        # Create transparent surface for connections
+        connection_surface = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+        connection_surface.fill((0, 0, 0, 0))
+
+        # Draw excitatory connections (B -> A)
+        for i in range(n_B):  # Source: B neurons
+            for j in range(n_A):  # Target: A neurons
+                weight = W_BA_cpu[j, i]
+                if abs(weight) > threshold:
+                    line_width = min(max_line_width, max(1, int(1 + abs(weight) * scale_factor)))
+                    start_pos = (layer_B_positions[i][0] - rect.x,
+                                layer_B_positions[i][1] - rect.y)
+                    end_pos = (layer_A_positions[j][0] - rect.x,
+                              layer_A_positions[j][1] - rect.y)
+                    # Red color for excitatory connections
+                    color_with_alpha = (*self.THEME["layer_b"], 180)
+                    pygame.draw.line(connection_surface, color_with_alpha, start_pos, end_pos, line_width)
+
+        # Blit connections to screen
+        self.screen.blit(connection_surface, (rect.x, rect.y))
+
+        # Draw nodes on top of connections
+        # Layer B nodes (excitatory) - left side
+        for pos in layer_B_positions:
+            pygame.draw.circle(self.screen, self.THEME["layer_b"], pos, node_radius)
+            pygame.draw.circle(self.screen, self.THEME["border"], pos, node_radius, 1)
+
+        # Layer A nodes (inhibitory) - right side
+        for pos in layer_A_positions:
+            pygame.draw.circle(self.screen, self.THEME["layer_a"], pos, node_radius)
+            pygame.draw.circle(self.screen, self.THEME["border"], pos, node_radius, 1)
+
+        # Add layer labels
+        layer_b_label = self.THEME["font_s"].render("Layer B", True, self.THEME["layer_b"])
+        layer_a_label = self.THEME["font_s"].render("Layer A", True, self.THEME["layer_a"])
+
+        # Layer B label (bottom-left)
+        layer_b_label_pos = (layer_B_x - layer_b_label.get_width() // 2,
+                            rect.bottom - 20)
+        layer_b_bg = pygame.Rect(layer_b_label_pos[0] - 2, layer_b_label_pos[1] - 2,
+                                layer_b_label.get_width() + 4, layer_b_label.get_height() + 4)
+        pygame.draw.rect(self.screen, self.THEME["panel_bg"], layer_b_bg)
+        pygame.draw.rect(self.screen, self.THEME["border"], layer_b_bg, 1)
+        self.screen.blit(layer_b_label, layer_b_label_pos)
+
+        # Layer A label (bottom-right)
+        layer_a_label_pos = (layer_A_x - layer_a_label.get_width() // 2,
+                            rect.bottom - 20)
+        layer_a_bg = pygame.Rect(layer_a_label_pos[0] - 2, layer_a_label_pos[1] - 2,
+                                layer_a_label.get_width() + 4, layer_a_label.get_height() + 4)
+        pygame.draw.rect(self.screen, self.THEME["panel_bg"], layer_a_bg)
+        pygame.draw.rect(self.screen, self.THEME["border"], layer_a_bg, 1)
+        self.screen.blit(layer_a_label, layer_a_label_pos)
+
+        # Draw border around subpanel
         pygame.draw.rect(self.screen, self.THEME["border"], rect, 1)
 
     def calculate_and_update_rates(self):
@@ -817,13 +943,13 @@ class NetworkVisualizer:
                     # Update connection probability and regenerate connectivity in real-time
                     self.network.connection_prob = event.value
                     self.network.initialize_connections()
-                    self.sparsity_label.set_text(f'Connection Prob: {event.value:.2f}')
+                    self.sparsity_label.set_text(f'Connect Prob: {event.value:.2f}')
                 elif event.ui_element == self.rate_A_slider:
                     self.network.background_rate_A = event.value
-                    self.rate_A_label.set_text(f'Background Rate A: {event.value:.1f} Hz')
+                    self.rate_A_label.set_text(f'Spont Rate A: {event.value:.1f} Hz')
                 elif event.ui_element == self.rate_B_slider:
                     self.network.background_rate_B = event.value
-                    self.rate_B_label.set_text(f'Background Rate B: {event.value:.1f} Hz')
+                    self.rate_B_label.set_text(f'Spont Rate B: {event.value:.1f} Hz')
 
                 # Handle lognormal parameter sliders for W_BA (excitatory)
                 elif event.ui_element == self.mu_BA_slider:
@@ -869,6 +995,39 @@ class NetworkVisualizer:
                     # Regenerate weights with current lognormal parameters
                     self.network.initialize_connections()
 
+                elif event.ui_element == self.estdp_button:
+                    # Toggle excitatory STDP on/off
+                    self.network.eSTDP_enabled = not self.network.eSTDP_enabled
+                    self.estdp_button.set_text(f"eSTDP: {'ON' if self.network.eSTDP_enabled else 'OFF'}")
+
+                elif event.ui_element == self.hebbian_istdp_button:
+                    # Toggle Hebbian iSTDP rule
+                    if self.network.iSTDP_enabled and not self.network.is_iSTDP_anti_hebbian:
+                        # Currently Hebbian ON -> Turn OFF (disable all iSTDP)
+                        self.network.iSTDP_enabled = False
+                        self.hebbian_istdp_button.set_text('iSTDP Hebbian: OFF')
+                        self.anti_hebbian_istdp_button.set_text('iSTDP Anti-Hebb: OFF')
+                    else:
+                        # Currently OFF or Anti-Hebbian ON -> Turn Hebbian ON
+                        self.network.iSTDP_enabled = True
+                        self.network.is_iSTDP_anti_hebbian = False
+                        self.hebbian_istdp_button.set_text('iSTDP Hebbian: ON')
+                        self.anti_hebbian_istdp_button.set_text('iSTDP Anti-Hebb: OFF')
+
+                elif event.ui_element == self.anti_hebbian_istdp_button:
+                    # Toggle Anti-Hebbian iSTDP rule
+                    if self.network.iSTDP_enabled and self.network.is_iSTDP_anti_hebbian:
+                        # Currently Anti-Hebbian ON -> Turn OFF (disable all iSTDP)
+                        self.network.iSTDP_enabled = False
+                        self.hebbian_istdp_button.set_text('iSTDP Hebbian: OFF')
+                        self.anti_hebbian_istdp_button.set_text('iSTDP Anti-Hebb: OFF')
+                    else:
+                        # Currently OFF or Hebbian ON -> Turn Anti-Hebbian ON
+                        self.network.iSTDP_enabled = True
+                        self.network.is_iSTDP_anti_hebbian = True
+                        self.anti_hebbian_istdp_button.set_text('iSTDP Anti-Hebb: ON')
+                        self.hebbian_istdp_button.set_text('iSTDP Hebbian: OFF')
+
     def run(self):
         """Main simulation loop."""
         running = True
@@ -904,8 +1063,7 @@ class NetworkVisualizer:
             self.time_label.set_text(f"Time: {self.network.current_time/1000:.2f} s")
             self.fps_label.set_text(f"FPS: {self.clock.get_fps():.0f}")
 
-            # Check for slider value changes (handles single-click arrow button updates)
-            self._check_slider_changes()
+
 
             # --- Draw Everything ---
             self.screen.fill(self.THEME["background"])
@@ -952,7 +1110,7 @@ class NetworkVisualizer:
                 self.bipartite_graph_rect,
                 self.network.W_AB,
                 self.network.W_BA,
-                "Connectivity Graph"
+                "Connectivity Graph (top 10%)"
             )
 
             self.draw_rate_plots(self.rate_panel)
