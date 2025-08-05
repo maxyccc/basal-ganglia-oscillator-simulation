@@ -15,15 +15,6 @@ This project implements a computational model of basal ganglia oscillations usin
 - **GPU Acceleration**: Optional CUDA support via CuPy for high-performance computation
 - **Interactive Controls**: Real-time parameter adjustment during simulation
 
-## Scientific Context
-
-The basal ganglia are a group of subcortical nuclei crucial for motor control, learning, and decision-making. Oscillatory activity in these circuits, particularly in the beta frequency range (13-30 Hz), has been implicated in both normal function and pathological conditions like Parkinson's disease. This simulation provides a simplified but biologically-inspired model to study:
-
-- Emergence of oscillatory patterns in inhibitory-excitatory networks
-- Effects of synaptic plasticity on network dynamics
-- Parameter sensitivity in neural oscillations
-- Computational mechanisms underlying basal ganglia function
-
 ## Installation
 
 ### Prerequisites
@@ -167,40 +158,6 @@ The simulation is optimized for real-time performance:
 | matplotlib | ≥3.3.0 | Colormaps and visualization |
 | cupy | ≥8.0.0 | GPU acceleration (optional) |
 
-## Contributing
-
-Contributions are welcome! Areas for potential improvement:
-
-- Additional neuron models (Hodgkin-Huxley, adaptive exponential, etc.)
-- More sophisticated plasticity rules (homeostatic, metaplasticity)
-- Network topology variations (small-world, scale-free)
-- Analysis tools (spectral analysis, connectivity metrics)
-- Performance optimizations
-- Documentation and examples
-
-### Development Setup
-
-1. Fork the repository
-2. Create a virtual environment
-3. Install dependencies: `pip install -r requirements.txt` (if available)
-4. Make your changes
-5. Test with both CPU and GPU modes
-6. Submit a pull request
-
 ## License
 
 This project is distributed under the MIT License. See the LICENSE file for details.
-
-## References
-
-- Leblois, A., Boraud, T., Meissner, W., Bergman, H., & Hansel, D. (2006). Competition between feedback loops underlies normal and pathological dynamics in the basal ganglia. *Journal of Neuroscience*, 26(13), 3567-3583.
-- Humphries, M. D., Stewart, R. D., & Gurney, K. N. (2006). A physiologically plausible model of action selection and oscillatory activity in the basal ganglia. *Journal of Neuroscience*, 26(50), 12921-12942.
-- Bi, G. Q., & Poo, M. M. (1998). Synaptic modifications in cultured hippocampal neurons: dependence on spike timing, synaptic strength, and postsynaptic cell type. *Journal of Neuroscience*, 18(24), 10464-10472.
-
-## Contact
-
-For questions, suggestions, or collaboration opportunities, please open an issue on the project repository.
-
----
-
-*This simulation is intended for research and educational purposes. It provides a simplified model of basal ganglia dynamics and should not be used for clinical applications.*
